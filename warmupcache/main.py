@@ -27,7 +27,8 @@ class WarmUpCache:
         self.sitemap = args.sitemap
         self.really = not args.dry_run
         self.progress = not args.no_progress
-        logging.basicConfig(level=(logging.DEBUG if args.verbose else logging.WARN))
+        logging.basicConfig(level=(logging.DEBUG if args.verbose else logging.INFO))
+        logging.getLogger("requests").setLevel(logging.WARNING)
 
     def run(self):
         self.log.debug("get sitemap from %s", self.sitemap)
