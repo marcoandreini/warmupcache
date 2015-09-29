@@ -51,15 +51,13 @@ class WarmUpCache:
                                    widgets=['Warm up cache:', Percentage(), ' ',
                                             Bar(marker=RotatingMarker()), ETA()])
             progress.start()
-            i = 0
         download_size = 0
         for location in locations:
             if self.really:
                 self.log.debug('get %s', location.text)
                 download_size = len(requests.get(location.text).content)
             if self.progress:
-                i += 1
-                progress.update(i)
+                progress += 1
         if self.progress:
             progress.finish()
 

@@ -21,7 +21,7 @@ setup(name='warmupcache',
         [console_scripts]
         warmupcache=warmupcache.main:cli
       ''',
-      install_requires=['requests', 'progressbar'],
+      install_requires=['requests', 'progressbar2'],
       classifiers=[
         'Intended Audience :: Developers',
         'Programming Language :: Python',
