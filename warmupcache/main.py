@@ -71,14 +71,16 @@ class WarmUpCache:
         self.log.debug("using parallel poolsize of %d on %d locations.",
                        self.poolsize, total)
 
+        size = 0
         with ThreadPoolExecutor(max_workers=self.poolsize) as executor:
             futures = [executor.submit(getlocation, url) for url in locations]
             for fs in as_completed(futures):
-                fs.result()
+                size += fs.result()
                 if self.progress:
                     progressbar += 1
         if self.progress:
             progressbar.finish()
+        self.log.info("Successfully downloaded %d bytes.", size)
 
 def cli():
     WarmUpCache().run()
