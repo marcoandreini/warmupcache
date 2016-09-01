@@ -5,9 +5,18 @@ import logging
 import argparse
 import requests
 import re
+import time
 
 from xml.etree import ElementTree
 from progressbar import ProgressBar, Bar, RotatingMarker, Percentage, ETA
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+def getlocation(location):
+    """
+    get location and return page size
+
+    """
+    return len(requests.get(location).content)
 
 
 class WarmUpCache:
@@ -21,12 +30,14 @@ class WarmUpCache:
                             help='dry run')
         parser.add_argument('-v', '--verbose', action='store_true', default=False)
         parser.add_argument('-q', '--no-progress', action='store_true', default=False)
+        parser.add_argument('-j', '--parallel', type=int, default=1)
         parser.add_argument('sitemap', metavar='SITEMAP',
                             help='url of the sitemap')
         args = parser.parse_args()
         self.sitemap = args.sitemap
-        self.really = not args.dry_run
+        self.dry_run = args.dry_run
         self.progress = not args.no_progress
+        self.poolsize = args.parallel
         logging.basicConfig(level=(logging.DEBUG if args.verbose else logging.INFO))
         logging.getLogger("requests").setLevel(logging.WARNING)
         logging.getLogger("urllib3").setLevel(logging.CRITICAL)
@@ -42,24 +53,32 @@ class WarmUpCache:
         ns = self.nsre.search(tree.tag).group(1)
         namespaces = dict(sitemap=ns)
         self.log.debug("namespaces used on sitemap %s", namespaces)
-        locations = tree.findall('.//sitemap:url/sitemap:loc', namespaces)
+        locations = [str(l.text) for l in
+                     tree.findall('.//sitemap:url/sitemap:loc', namespaces)]
         if not locations:
             self.log.error("no locations found in %s", self.sitemap)
             return
+        total = len(locations)
         if self.progress:
-            progress = ProgressBar(maxval=len(locations),
-                                   widgets=['Warm up cache:', Percentage(), ' ',
-                                            Bar(marker=RotatingMarker()), ETA()])
-            progress.start()
-        download_size = 0
-        for location in locations:
-            if self.really:
-                self.log.debug('get %s', location.text)
-                download_size = len(requests.get(location.text).content)
-            if self.progress:
-                progress += 1
+            progressbar = ProgressBar(maxval=total,
+                            widgets=['Warm up cache:', Percentage(), ' ',
+                            Bar(marker=RotatingMarker()), ETA()])
+            progressbar.start()
+        if self.dry_run:
+            progressbar.finish()
+            return
+
+        self.log.debug("using parallel poolsize of %d on %d locations.",
+                       self.poolsize, total)
+
+        with ThreadPoolExecutor(max_workers=self.poolsize) as executor:
+            futures = [executor.submit(getlocation, url) for url in locations]
+            for fs in as_completed(futures):
+                fs.result()
+                if self.progress:
+                    progressbar += 1
         if self.progress:
-            progress.finish()
+            progressbar.finish()
 
 def cli():
     WarmUpCache().run()
