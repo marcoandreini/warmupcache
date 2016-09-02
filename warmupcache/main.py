@@ -98,10 +98,10 @@ class WarmUpCache:
         if not self.quiet:
             progressbar.finish()
 
+        if self.summary:
             nr = len(results)
             size = sum(r.size for r in results)
             elapsed = sum((r.elapsed for r in results), timedelta())
-        if self.summary:
             print("Requests: {:d}".format(nr))
             print("Total size: {:d}".format(size))
             print("Total elapsed time: {}".format(elapsed))
