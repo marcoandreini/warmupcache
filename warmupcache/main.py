@@ -109,7 +109,7 @@ class WarmUpCache:
                   .format(milliseconds(elapsed / nr),
                           milliseconds(min(r.elapsed for r in results)),
                           milliseconds(max(r.elapsed for r in results))))
-            print("Request/sec: {:.3f}".format(nr / seconds(elapsed)))
+            print("Average request/second: {:.3f}".format(nr / seconds(elapsed)))
 
     def run(self):
         for sitemap in self.sitemap:
