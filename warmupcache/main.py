@@ -5,19 +5,29 @@ import logging
 import argparse
 import requests
 import re
-import time
 
 from xml.etree import ElementTree
 from progressbar import ProgressBar, Bar, RotatingMarker, Percentage, ETA
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections import namedtuple
+from datetime import timedelta
+
+LocationData = namedtuple('LocationData', 'size elapsed')
+
 
 def getlocation(location):
     """
     get location and return page size
 
     """
-    return len(requests.get(location).content)
+    response = requests.get(location)
+    return LocationData(size=len(response.content), elapsed=response.elapsed)
 
+def seconds(diff):
+    return diff.total_seconds() + diff.microseconds / 1000000
+
+def milliseconds(diff):
+    return diff.total_seconds() * 1000 + diff.microseconds / 1000
 
 class WarmUpCache:
 
@@ -29,22 +39,27 @@ class WarmUpCache:
         parser.add_argument('--dry-run', action='store_true', default=False,
                             help='dry run')
         parser.add_argument('-v', '--verbose', action='store_true', default=False)
-        parser.add_argument('-q', '--no-progress', action='store_true', default=False)
+        parser.add_argument('-q', '--quiet', action='store_true', default=False)
+        parser.add_argument('-s', '--summary', action='store_false',
+                            default=True, help='show summary informations')
         parser.add_argument('-j', '--parallel', type=int, default=1)
-        parser.add_argument('sitemap', metavar='SITEMAP',
+        parser.add_argument('-l', '--limit', type=int, help='requests limit')
+        parser.add_argument('sitemap', nargs='+',
                             help='url of the sitemap')
         args = parser.parse_args()
         self.sitemap = args.sitemap
         self.dry_run = args.dry_run
-        self.progress = not args.no_progress
+        self.quiet = args.quiet
+        self.summary = args.summary
+        self.limit = args.limit
         self.poolsize = args.parallel
         logging.basicConfig(level=(logging.DEBUG if args.verbose else logging.INFO))
         logging.getLogger("requests").setLevel(logging.WARNING)
         logging.getLogger("urllib3").setLevel(logging.CRITICAL)
 
-    def run(self):
-        self.log.debug("get sitemap from %s", self.sitemap)
-        res = requests.get(self.sitemap)
+    def readAll(self, sitemap):
+        self.log.debug("get sitemap from %s", sitemap)
+        res = requests.get(sitemap)
         if res.status_code != 200:
             self.log.error("sitemap not found")
             return
@@ -55,11 +70,13 @@ class WarmUpCache:
         self.log.debug("namespaces used on sitemap %s", namespaces)
         locations = [str(l.text) for l in
                      tree.findall('.//sitemap:url/sitemap:loc', namespaces)]
+        if not self.limit is None:
+            locations = locations[:self.limit]
         if not locations:
-            self.log.error("no locations found in %s", self.sitemap)
+            self.log.error("no locations found in %s", sitemap)
             return
         total = len(locations)
-        if self.progress:
+        if not self.quiet:
             progressbar = ProgressBar(maxval=total,
                             widgets=['Warm up cache:', Percentage(), ' ',
                             Bar(marker=RotatingMarker()), ETA()])
@@ -71,16 +88,32 @@ class WarmUpCache:
         self.log.debug("using parallel poolsize of %d on %d locations.",
                        self.poolsize, total)
 
-        size = 0
+        results = []
         with ThreadPoolExecutor(max_workers=self.poolsize) as executor:
             futures = [executor.submit(getlocation, url) for url in locations]
             for fs in as_completed(futures):
-                size += fs.result()
-                if self.progress:
+                results.append(fs.result())
+                if not self.quiet:
                     progressbar += 1
-        if self.progress:
+        if not self.quiet:
             progressbar.finish()
-        self.log.info("Successfully downloaded %d bytes.", size)
+
+            nr = len(results)
+            size = sum(r.size for r in results)
+            elapsed = sum((r.elapsed for r in results), timedelta())
+        if self.summary:
+            print("Requests: {:d}".format(nr))
+            print("Total size: {:d}".format(size))
+            print("Total elapsed time: {}".format(elapsed))
+            print("Average elapsed time in millisec: {:.3f} (min={:.3f}, max={:.3f})"
+                  .format(milliseconds(elapsed / nr),
+                          milliseconds(min(r.elapsed for r in results)),
+                          milliseconds(max(r.elapsed for r in results))))
+            print("Request/sec: {:.3f}".format(nr / seconds(elapsed)))
+
+    def run(self):
+        for sitemap in self.sitemap:
+            self.readAll(sitemap)
 
 def cli():
     WarmUpCache().run()
